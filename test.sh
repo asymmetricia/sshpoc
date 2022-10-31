@@ -19,6 +19,11 @@ done
 go get .
 go run . &
 
+# wait for server to start
+until nc -v -z localhost 2022 >/dev/null 2>&1; do sleep 1; done
+
+chmod 0600 "$IDENTITY_FILE"
+
 ssh \
   -o UserKnownHostsFile=/dev/null \
   -o StrictHostKeyChecking=no \
