@@ -7,21 +7,17 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
 
-func main() {
+func serveSSH() {
 	sshConf := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, _ ssh.PublicKey) (*ssh.Permissions, error) {
 			return nil, nil
 		},
-	}
-
-	listener, err := net.Listen("tcp", "0.0.0.0:2022")
-	if err != nil {
-		log.Fatal("failed to listen for connection: ", err)
 	}
 
 	privateBytes, err := os.ReadFile("id_rsa")
@@ -36,44 +32,120 @@ func main() {
 
 	sshConf.AddHostKey(private)
 
+	listener, err := net.Listen("tcp", "localhost:2022")
+	if err != nil {
+		log.Fatal("failed to listen for connection: ", err)
+	}
+
 	for {
 		nConn, err := listener.Accept()
 		if err != nil {
-			log.Fatal("failed to accept incoming connection: ", err)
+			log.Printf("failed to accept incoming connection: %v", err)
+			continue
 		}
 
-		_, chans, reqs, err := ssh.NewServerConn(nConn, sshConf)
+		go handleSSHSession(sshConf, nConn)
+	}
+}
+
+func handleSSHSession(sshConf *ssh.ServerConfig, nConn net.Conn) {
+	defer nConn.Close()
+
+	serverConn, chans, reqs, err := ssh.NewServerConn(nConn, sshConf)
+	if err != nil {
+		if strings.Contains(err.Error(), "no auth passed yet") {
+			return
+		}
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		log.Printf("failed to handshake: %v", err)
+		return
+	}
+
+	defer serverConn.Close()
+
+	go ssh.DiscardRequests(reqs)
+
+	for newChannel := range chans {
+		if newChannel.ChannelType() != "session" {
+			newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+			continue
+		}
+		channel, requests, err := newChannel.Accept()
 		if err != nil {
-			if strings.Contains(err.Error(), "no auth passed yet") {
-				return
-			}
-			if errors.Is(err, io.EOF) {
-				continue
-			}
-			log.Fatal("failed to handshake: ", err)
+			log.Fatalf("Could not accept channel: %v", err)
 		}
 
-		go ssh.DiscardRequests(reqs)
-
-		for newChannel := range chans {
-			if newChannel.ChannelType() != "session" {
-				newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
-				continue
+		go func(in <-chan *ssh.Request) {
+			for req := range in {
+				req.Reply(req.Type == "shell", nil)
 			}
-			channel, requests, err := newChannel.Accept()
-			if err != nil {
-				log.Fatalf("Could not accept channel: %v", err)
+		}(requests)
+
+		fmt.Fprintln(channel, "Hello, world!")
+		channel.Close()
+	}
+}
+
+func main() {
+	go serveSSH()
+
+	cmd := exec.Command("ssh", "-V")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("could not check SSH version; not in PATH?: %v", err)
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		log.Print(line)
+	}
+
+	cmd = exec.Command("ssh",
+		"-F", "/dev/null",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "IdentityAgent=/dev/null",
+		"-o", "IdentityFile=id_rsa_client",
+		"-p", "2022",
+		"-v",
+		"localhost")
+
+	output, err = cmd.CombinedOutput()
+	if strings.Contains(string(output), "no mutual signature algorithm") {
+		log.Print("connection failed with RSA private key")
+		for _, line := range strings.Split(string(output), "\n") {
+			if strings.Contains(line, "no mutual signature algorithm") {
+				log.Print(line)
 			}
+		}
+	} else if err != nil {
+		for _, line := range strings.Split(string(output), "\n") {
+			log.Print(line)
+		}
+		log.Fatal(err)
+	}
 
-			go func(in <-chan *ssh.Request) {
-				for req := range in {
-					req.Reply(req.Type == "shell", nil)
-				}
-			}(requests)
+	cmd = exec.Command("ssh",
+		"-F", "/dev/null",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "IdentityAgent=/dev/null",
+		"-o", "IdentityFile=id_ed25519_client",
+		"-p", "2022",
+		"-v", "localhost")
 
-			fmt.Fprintln(channel, "Hello, world!")
-			channel.Close()
-			os.Exit(0)
+	output, err = cmd.CombinedOutput()
+	if strings.Contains(string(output), "Hello, world!") {
+		log.Print("connection succeeded with ed25519 private key")
+	} else {
+		for _, line := range strings.Split(string(output), "\n") {
+			log.Print(line)
+		}
+		if err != nil {
+			log.Fatal(err)
 		}
 	}
 }

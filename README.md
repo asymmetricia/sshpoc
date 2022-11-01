@@ -11,7 +11,4 @@ Known effected versions:
 * Ubuntu Jammy `OpenSSH_8.9p1 Ubuntu-3, OpenSSL 3.0.2 15 Mar 2022`
 * macOS Ventura
 
-To test your version of `ssh`, run: `test.sh`
-
-To confirm that the behavior is not reproducible with Ed25519 keys, run
-`test.sh --ed25519`
+To test your version of `ssh`, run: `go run .`
