@@ -88,6 +88,42 @@ func handleSSHSession(sshConf *ssh.ServerConfig, nConn net.Conn) {
 	}
 }
 
+func testKey(key string) {
+  os.Chmod(key, 0600)
+	cmd := exec.Command("ssh",
+		"-F", "/dev/null",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "IdentityAgent=/dev/null",
+		"-o", "IdentityFile="+key,
+		"-p", "2022",
+		"-v",
+		"localhost")
+
+  output, err := cmd.CombinedOutput()
+	if strings.Contains(string(output), "no mutual signature algorithm") {
+		log.Printf("⛔ connection failed with key %s", key)
+		for _, line := range strings.Split(string(output), "\n") {
+			if strings.Contains(line, "no mutual signature algorithm") {
+				log.Printf("⛔ %s", line)
+			}
+		}
+	} else if strings.Contains(string(output), "Hello, world!") {
+		log.Printf("✅ connection succeeded with key %s", key)
+	} else if err != nil {
+    log.Printf("⛔ non-signature failure with key %s", key)
+		for _, line := range strings.Split(string(output), "\n") {
+      log.Printf("⛔ %s", line)
+		}
+		log.Fatalf("⛔ %v", err)
+  } else {
+    log.Printf("⚠ connection did not succeed or fail?!")
+		for _, line := range strings.Split(string(output), "\n") {
+      log.Printf("⚠ %s", line)
+		}
+  }
+}
+
 func main() {
 	go serveSSH()
 
@@ -103,49 +139,6 @@ func main() {
 		log.Print(line)
 	}
 
-	cmd = exec.Command("ssh",
-		"-F", "/dev/null",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "IdentityAgent=/dev/null",
-		"-o", "IdentityFile=id_rsa_client",
-		"-p", "2022",
-		"-v",
-		"localhost")
-
-	output, err = cmd.CombinedOutput()
-	if strings.Contains(string(output), "no mutual signature algorithm") {
-		log.Print("connection failed with RSA private key")
-		for _, line := range strings.Split(string(output), "\n") {
-			if strings.Contains(line, "no mutual signature algorithm") {
-				log.Print(line)
-			}
-		}
-	} else if err != nil {
-		for _, line := range strings.Split(string(output), "\n") {
-			log.Print(line)
-		}
-		log.Fatal(err)
-	}
-
-	cmd = exec.Command("ssh",
-		"-F", "/dev/null",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "IdentityAgent=/dev/null",
-		"-o", "IdentityFile=id_ed25519_client",
-		"-p", "2022",
-		"-v", "localhost")
-
-	output, err = cmd.CombinedOutput()
-	if strings.Contains(string(output), "Hello, world!") {
-		log.Print("connection succeeded with ed25519 private key")
-	} else {
-		for _, line := range strings.Split(string(output), "\n") {
-			log.Print(line)
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
+  testKey("id_rsa_client")
+  testKey("id_ed25519_client")
 }
