@@ -12,4 +12,6 @@ Known affected versions:
 * Fedora 36 `OpenSSH_8.8p1, OpenSSL 3.0.5 5 Jul 2022`
 * macOS Ventura
 
-To test your version of `ssh`, run: `go run .`
+To test your version of `ssh`, run: `go run .` 
+
+You need Go 1.17 or newer to build this package.
